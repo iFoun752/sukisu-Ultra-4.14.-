@@ -409,6 +409,21 @@ dispatch.write_text(text)
 if "kvcalloc(" in text:
     raise SystemExit("SukiSU 4.14: supercall/dispatch.c still calls kvcalloc()")
 
+# kernel_includes.h pulls <linux/static_call.h> unconditionally, but that header
+# only exists from 5.10. The builtin tree never actually calls into static_call
+# (the only hit in the whole driver is this include line), so guarding it for
+# pre-5.10 is enough.
+includes = root / "kernel_includes.h"
+text = includes.read_text()
+static_call = "#include <linux/static_call.h>"
+guard = "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)"
+if static_call in text and guard + "\n" + static_call not in text:
+    text = text.replace(
+        static_call,
+        guard + "\n" + static_call + "\n#endif",
+    )
+    includes.write_text(text)
+
 # The MTK vendor code in this tree trips a class of warnings that 4.14's top
 # Makefile promotes to errors (e.g. kernel/irq/sbalance.c passes a const
 # list_sort() comparator to a non-const prototype). Downgrade only that one
