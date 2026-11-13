@@ -424,6 +424,15 @@ if static_call in text and guard + "\n" + static_call not in text:
     )
     includes.write_text(text)
 
+# 4.14's access_ok() is the three-argument form: access_ok(type, addr, size).
+# extension/kpm/kpm.c calls the modern two-argument form directly instead of
+# going through the driver's own ksu_access_ok() wrapper, which fails with
+# "too few arguments provided to function-like macro invocation".
+kpm = root / "extension" / "kpm" / "kpm.c"
+text = kpm.read_text()
+if "access_ok(u64_to_user_ptr" in text:
+    kpm.write_text(text.replace("access_ok(u64_to_user_ptr", "ksu_access_ok(u64_to_user_ptr"))
+
 # The MTK vendor code in this tree trips a class of warnings that 4.14's top
 # Makefile promotes to errors (e.g. kernel/irq/sbalance.c passes a const
 # list_sort() comparator to a non-const prototype). Downgrade only that one
@@ -476,7 +485,7 @@ if call not in text:
     text = before + body
 reboot.write_text(text)
 PY
-	ok "SukiSU Linux 4.14 compatibility fixes applied (fallthrough, ksud guards, sulog, reboot hook, kvcalloc, -Werror downgrade)"
+	ok "SukiSU Linux 4.14 compatibility fixes applied (fallthrough, ksud guards, sulog, reboot hook, kvcalloc, static_call include, access_ok, -Werror downgrade)"
 	endgroup
 }
 
