@@ -34,22 +34,33 @@ make_anykernel3() {
 	else
 		retry 3 git clone -q --depth=1 https://github.com/osm0sis/AnyKernel3 "$AK3" \
 			|| die "failed to clone AnyKernel3"
-		# This repository builds only for Pixel 4 (flame). Refuse every other
-		# device instead of producing a dangerously broad flashable package.
+		# AnyKernel3's own anykernel.sh is a Pixel 4 sample: it hardcodes
+		# device.name1=flame with do.devicecheck=1. Left untouched, the package
+		# would refuse to install on any other device -- which is the safe
+		# direction, but means the build "succeeds" while producing an image
+		# that cannot be flashed. Rewrite the identity fields from DEVICE.
+		local dev=${DEVICE:?DEVICE must be set by config.sh}
+		local slot=0
+		is_true "${IS_SLOT_DEVICE:-false}" && slot=1
 		sed -i \
-			-e 's/^kernel.string=.*/kernel.string=SukiSU Ultra kernel for Pixel 4 (flame)/' \
-			-e 's/^device.name1=.*/device.name1=flame/' \
-			-e 's/^device.name[2-9]=.*/&/' \
+			-e "s/^kernel.string=.*/kernel.string=SukiSU Ultra kernel for ${dev}/" \
+			-e "s/^device.name1=.*/device.name1=${dev}/" \
+			-e "s/^IS_SLOT_DEVICE=[01];/IS_SLOT_DEVICE=${slot};/" \
 			"${AK3}/anykernel.sh"
 		for n in 2 3 4 5 6 7 8 9; do
 			sed -i "s/^device.name${n}=.*/device.name${n}=/" "${AK3}/anykernel.sh"
 		done
 		sed -i 's!BLOCK=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!BLOCK=auto;!g' "${AK3}/anykernel.sh"
-		sed -i 's/IS_SLOT_DEVICE=0;/IS_SLOT_DEVICE=1;/g' "${AK3}/anykernel.sh"
 		# Upstream's template contains example Nexus-era init.rc/fstab edits.
-		# A kernel-only Pixel package must only replace the kernel and preserve
-		# the stock ramdisk, so remove that sample block and retain write_boot.
+		# A kernel-only package must only replace the kernel and preserve the
+		# stock ramdisk, so remove that sample block and retain write_boot.
 		sed -i '/^# init\.rc$/,/^write_boot;/ { /^write_boot;/!d; }' "${AK3}/anykernel.sh"
+
+		# Fail the build instead of shipping an all-but-unflashable zip.
+		grep -qx "device.name1=${dev}" "${AK3}/anykernel.sh" \
+			|| die "anykernel.sh device.name1 was not rewritten to ${dev}"
+		grep -qx "IS_SLOT_DEVICE=${slot};" "${AK3}/anykernel.sh" \
+			|| die "anykernel.sh IS_SLOT_DEVICE was not set to ${slot}"
 	fi
 
 	cp "${BOOT_OUT}/${KERNEL_IMAGE_NAME}" "${AK3}/" \
