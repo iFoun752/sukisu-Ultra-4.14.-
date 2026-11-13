@@ -388,6 +388,39 @@ text = text.replace(
 )
 event.write_text(text)
 
+# kvcalloc() is 5.4+. supercall/dispatch.c allocates two arrays with it in
+# do_lookup_symbols(), which is compiled unconditionally -- SUSFS being off does
+# not hide it. 4.14's include/linux/mm.h only has kvmalloc()/kvzalloc()/
+# kvmalloc_array(), so the call is an implicit declaration and
+# -Werror-implicit-function-declaration turns that into a build failure.
+#
+# kvmalloc_array() is the right substitute, but unlike kvcalloc() it does not
+# zero the buffer, so keep __GFP_ZERO for the same semantics.
+dispatch = root / "supercall" / "dispatch.c"
+text = dispatch.read_text()
+for old, new in {
+    "names = kvcalloc(cmd.count, sizeof(*names), GFP_KERNEL);":
+        "names = kvmalloc_array(cmd.count, sizeof(*names), GFP_KERNEL | __GFP_ZERO);",
+    "addrs = kvcalloc(cmd.count, sizeof(*addrs), GFP_KERNEL);":
+        "addrs = kvmalloc_array(cmd.count, sizeof(*addrs), GFP_KERNEL | __GFP_ZERO);",
+}.items():
+    text = text.replace(old, new)
+dispatch.write_text(text)
+if "kvcalloc(" in text:
+    raise SystemExit("SukiSU 4.14: supercall/dispatch.c still calls kvcalloc()")
+
+# The MTK vendor code in this tree trips a class of warnings that 4.14's top
+# Makefile promotes to errors (e.g. kernel/irq/sbalance.c passes a const
+# list_sort() comparator to a non-const prototype). Downgrade only that one
+# diagnostic instead of disabling -Werror wholesale.
+makefile = kernel_root / "Makefile"
+text = makefile.read_text()
+flag = "-Werror=incompatible-pointer-types"
+if flag in text:
+    makefile.write_text(text.replace(flag, "-Wno-error=incompatible-pointer-types"))
+elif "-Wno-error=incompatible-pointer-types" not in text:
+    raise SystemExit("SukiSU 4.14: incompatible-pointer-types flag not found in Makefile")
+
 # The builtin branch installs the manager's driver fd with O_CLOEXEC.  Every
 # ksud child therefore requests a fresh fd through the reboot syscall before
 # issuing ioctls.  The generic 4.14 manual-hook patch predates that UAPI and
@@ -428,7 +461,7 @@ if call not in text:
     text = before + body
 reboot.write_text(text)
 PY
-	ok "SukiSU Linux 4.14 compatibility fixes applied"
+	ok "SukiSU Linux 4.14 compatibility fixes applied (fallthrough, ksud guards, sulog, reboot hook, kvcalloc, -Werror downgrade)"
 	endgroup
 }
 
